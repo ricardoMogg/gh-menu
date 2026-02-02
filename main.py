@@ -198,27 +198,43 @@ def fetch_my_open_prs_with_unresolved(api_key: str, first: int = 25) -> list[dic
 
 class GitHubPRMenuApp(rumps.App):
     def __init__(self):
-        super(GitHubPRMenuApp, self).__init__("PRs: -", quit_button="Quit")
+        # rumps' built-in quit_button always appears at the bottom. We want Quit first.
+        super(GitHubPRMenuApp, self).__init__("PRs: -", quit_button=None)
         self.api_key = os.environ.get("GH_API_KEY")
-        self.dynamic_menu_keys: list[str] = []
+        self.dynamic_menu_items: list[rumps.MenuItem] = []
+        self._quit_title = "Quit"
 
         logger.info("Starting gh-menu app")
         logger.info(f"Log file location: {log_file}")
 
+        # Static menu items (always present, always first)
+        self.menu.add(rumps.MenuItem(self._quit_title, callback=rumps.quit_application))
+
         if not self.api_key:
             self.title = "⚠️ Set GH_API_KEY env var"
             logger.warning("GH_API_KEY environment variable not set")
-            self.menu = ["Set GH_API_KEY environment variable", "See README for instructions"]
+            self._add_menu_item("Set GH_API_KEY environment variable")
+            self._add_menu_item("See README for instructions")
         else:
             self.check_prs()
             self.timer = rumps.Timer(self.check_prs, 5)
             self.timer.start()
 
     def _clear_dynamic_menu(self) -> None:
-        for key in self.dynamic_menu_keys:
-            if key in self.menu:
-                del self.menu[key]
-        self.dynamic_menu_keys = []
+        # rumps.Menu can be keyed by title, but when adding MenuItem objects
+        # it's safest to track and delete the exact objects we created.
+        for item in self.dynamic_menu_items:
+            # Try a couple deletion modes to be robust across rumps versions.
+            try:
+                del self.menu[item]
+                continue
+            except Exception:
+                pass
+            try:
+                del self.menu[item.title]
+            except Exception:
+                pass
+        self.dynamic_menu_items = []
 
     def _add_menu_item(self, title: str, url: Optional[str] = None) -> None:
         if url:
@@ -226,7 +242,7 @@ class GitHubPRMenuApp(rumps.App):
         else:
             item = rumps.MenuItem(title)
         self.menu.add(item)
-        self.dynamic_menu_keys.append(title)
+        self.dynamic_menu_items.append(item)
 
     def check_prs(self, _=None):
         if not self.api_key:
