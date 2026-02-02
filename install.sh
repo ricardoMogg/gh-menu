@@ -64,7 +64,7 @@ fi
 # Validate the API key by testing it
 echo ""
 echo "Validating API key..."
-VALIDATION_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: token $GH_API_KEY" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/search/issues?q=is:open+is:pr+user-review-requested:@me&per_page=1")
+VALIDATION_RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: token $GH_API_KEY" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/search/issues?q=is:open+is:pr+user-review-requested:@me+org:withbridge&per_page=1")
 HTTP_CODE=$(echo "$VALIDATION_RESPONSE" | tail -n1)
 RESPONSE_BODY=$(echo "$VALIDATION_RESPONSE" | sed '$d')
 

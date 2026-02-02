@@ -1,6 +1,7 @@
 # gh-menu
 
 A macOS menu bar application that displays the number of GitHub PRs awaiting your review.
+Scopes results to the `withbridge` organization.
 
 ![gh-menu screenshot](screenshot.png)
 
@@ -25,21 +26,28 @@ The install script will prompt you for your GitHub API key and set everything up
 ## How It Works
 
 The app will:
-- Display "🟢 PRs: 0" when you have no PRs awaiting review (inbox zero!)
-- Display "🔴 PRs: X | [username] PR title..." when you have PRs awaiting review
+- Display a compact status summary in the menu bar:
+  - "🟢 R:0 M:0" when you have no review requests and no open PRs
+  - "🟢 R:0 M:X" when you have no review requests and X open PRs (with 0 unresolved threads)
+  - "🔴 R:X M:Y/Z" when you have review requests (R) and/or unresolved review threads (Z) on your open PRs (M)
   - Shows a red circle indicator to catch your attention
-  - Shows the count and details of the oldest PR (author + truncated title)
 - Check GitHub every 5 seconds for updates
 - Show "⚠️ Set GH_API_KEY env var" if the API key is not set
 - Show "❌ error message..." if there's an error (shows actual exception details)
 
 Dropdown menu:
-- Shows all PRs awaiting review (newest first, oldest at bottom)
-- Format: `🔀 [author] PR title... (age)`
+- Shows two sections:
+  - PRs awaiting your review (newest first, oldest at bottom)
+    - Format: `🔀 owner/repo#123 [author] PR title... (age)`
+  - Your open PRs
+    - Format: `🧑 owner/repo#123 PR title... (age) • unresolved: N`
 - Click any PR to open it in your browser
 - Age is calculated from PR creation time
 - Auto-refreshes every 5 seconds
 - "Quit" button at the bottom to exit the app
+
+Notes:
+- The **unresolved** number is the count of **unresolved review threads** (not total comment count).
 
 ## UV Quick Reference
 
