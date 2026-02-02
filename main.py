@@ -201,52 +201,49 @@ class GitHubPRMenuApp(rumps.App):
         # rumps' built-in quit_button always appears at the bottom. We want Quit first.
         super(GitHubPRMenuApp, self).__init__("PRs: -", quit_button=None)
         self.api_key = os.environ.get("GH_API_KEY")
-        self.dynamic_menu_items: list[rumps.MenuItem] = []
-        self._quit_title = "Quit"
+        self._refresh_in_progress = False
 
         logger.info("Starting gh-menu app")
         logger.info(f"Log file location: {log_file}")
 
-        # Static menu items (always present, always first)
-        self.menu.add(rumps.MenuItem(self._quit_title, callback=rumps.quit_application))
+        # Start with a minimal menu; we'll rebuild it on every refresh to avoid duplicates.
+        self.menu.clear()
+        self.menu.add(self._quit_item())
 
         if not self.api_key:
             self.title = "⚠️ Set GH_API_KEY env var"
             logger.warning("GH_API_KEY environment variable not set")
-            self._add_menu_item("Set GH_API_KEY environment variable")
-            self._add_menu_item("See README for instructions")
+            self._set_menu(
+                [
+                    self._quit_item(),
+                    rumps.MenuItem("Set GH_API_KEY environment variable"),
+                    rumps.MenuItem("See README for instructions"),
+                ]
+            )
         else:
             self.check_prs()
             self.timer = rumps.Timer(self.check_prs, 5)
             self.timer.start()
 
-    def _clear_dynamic_menu(self) -> None:
-        # rumps.Menu can be keyed by title, but when adding MenuItem objects
-        # it's safest to track and delete the exact objects we created.
-        for item in self.dynamic_menu_items:
-            # Try a couple deletion modes to be robust across rumps versions.
-            try:
-                del self.menu[item]
-                continue
-            except Exception:
-                pass
-            try:
-                del self.menu[item.title]
-            except Exception:
-                pass
-        self.dynamic_menu_items = []
+    def _quit_item(self) -> rumps.MenuItem:
+        # Must be a fresh MenuItem object each time; AppKit disallows sharing a menu item between menus.
+        return rumps.MenuItem("Quit", callback=rumps.quit_application)
 
-    def _add_menu_item(self, title: str, url: Optional[str] = None) -> None:
-        if url:
-            item = rumps.MenuItem(title, callback=lambda _, u=url: webbrowser.open(u))
-        else:
-            item = rumps.MenuItem(title)
-        self.menu.add(item)
-        self.dynamic_menu_items.append(item)
+    def _set_menu(self, items: list[rumps.MenuItem]) -> None:
+        # Clear and rebuild in-place; assigning `self.menu = [...]` can lead to duplication in some rumps versions.
+        self.menu.clear()
+        for item in items:
+            self.menu.add(item)
+
+    def _link_item(self, title: str, url: str) -> rumps.MenuItem:
+        return rumps.MenuItem(title, callback=lambda _, u=url: webbrowser.open(u))
 
     def check_prs(self, _=None):
         if not self.api_key:
             return
+        if self._refresh_in_progress:
+            return
+        self._refresh_in_progress = True
 
         try:
             rest_headers = github_rest_headers(self.api_key)
@@ -281,13 +278,13 @@ class GitHubPRMenuApp(rumps.App):
                 else:
                     self.title = f"🔴 R:{review_count} M:{my_open_count}"
 
-            # Rebuild dynamic menu section(s)
-            self._clear_dynamic_menu()
+            # Rebuild the whole menu each refresh (prevents duplicate accumulation)
+            menu_entries: list[rumps.MenuItem] = [self._quit_item()]
 
             # Section: PRs awaiting your review
-            self._add_menu_item("— Awaiting your review —")
+            menu_entries.append(rumps.MenuItem("— Awaiting your review —"))
             if review_count == 0:
-                self._add_menu_item("🟢 None")
+                menu_entries.append(rumps.MenuItem("🟢 None"))
             else:
                 # Add newest first (oldest at bottom)
                 for pr in reversed(review_items):
@@ -305,12 +302,12 @@ class GitHubPRMenuApp(rumps.App):
 
                     age = get_relative_time(created_at)
                     menu_text = f"🔀 {repo}#{pr_number} [{author}] {pr_title} ({age})"
-                    self._add_menu_item(menu_text, url=pr_url)
+                    menu_entries.append(self._link_item(menu_text, pr_url))
 
             # Section: Your open PRs (unresolved threads)
-            self._add_menu_item("— Your open PRs —")
+            menu_entries.append(rumps.MenuItem("— Your open PRs —"))
             if my_open_count == 0:
-                self._add_menu_item("🟢 None")
+                menu_entries.append(rumps.MenuItem("🟢 None"))
             else:
                 # Show oldest at bottom (so newest first)
                 # Sort by createdAt ascending then reverse for menu
@@ -332,13 +329,13 @@ class GitHubPRMenuApp(rumps.App):
                     # GraphQL returns ISO8601 like "2026-02-02T12:34:56Z"
                     age = get_relative_time(created_at) if created_at else "?"
                     menu_text = f"🧑 {repo}#{pr_number} {pr_title} ({age}) • unresolved: {unresolved}"
-                    self._add_menu_item(menu_text, url=pr_url)
+                    menu_entries.append(self._link_item(menu_text, pr_url))
 
             # Section: Ready for merge (subset of your open PRs)
             ready_prs = [p for p in my_prs if p.get("ready_for_merge")]
-            self._add_menu_item("— Ready for merge —")
+            menu_entries.append(rumps.MenuItem("— Ready for merge —"))
             if not ready_prs:
-                self._add_menu_item("🟢 None")
+                menu_entries.append(rumps.MenuItem("🟢 None"))
             else:
                 for pr in reversed(sorted(ready_prs, key=created_key)):
                     pr_title = pr.get("title", "")
@@ -355,7 +352,9 @@ class GitHubPRMenuApp(rumps.App):
                     age = get_relative_time(created_at) if created_at else "?"
                     checks_suffix = f" • checks: {checks_state}" if checks_state else ""
                     menu_text = f"✅ {repo}#{pr_number} {pr_title} ({age}){checks_suffix}"
-                    self._add_menu_item(menu_text, url=pr_url)
+                    menu_entries.append(self._link_item(menu_text, pr_url))
+
+            self._set_menu(menu_entries)
 
             logger.info(
                 f"Review requests: {review_count}; My open PRs: {my_open_count}; My unresolved threads total: {my_unresolved_total}"
@@ -369,6 +368,8 @@ class GitHubPRMenuApp(rumps.App):
             error_msg = str(e)[:50]  # Truncate to keep menu bar readable
             self.title = f"❌ {error_msg}"
             logger.error(f"Unexpected error: {e}")
+        finally:
+            self._refresh_in_progress = False
 
 def main():
     check_single_instance()
